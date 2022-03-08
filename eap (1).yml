@@ -1,0 +1,59 @@
+---
+- name: EAP
+  hosts: eap
+  gather_facts: true
+  vars: 
+    jboss_process: 
+    jboss_installed: "false"
+    fuse_installed:  "false"
+    jboss_version:  "none"
+#    windows_servers: "groups['eap']"  #### for J2 Template
+  
+
+  tasks:
+  - block:
+    - name: Get JAVA processes for Fuse and JBOSS search
+      win_shell: Get-WmiObject Win32_Process -Filter "name = 'java.exe'" | Select-Object -ExpandProperty CommandLine
+      register: java_process
+
+    - name: Get JBOSS processes
+      win_shell: Get-Process -Name jboss* | Select path
+      register: jboss_process
+
+
+    - name: Check for fuse
+      set_fact:
+        fuse_installed: yes
+      when: java_process.stdout.find('fuse') != -1
+
+    - name: Check for jboss
+      set_fact:
+        jboss_installed: yes      
+      when: java_process.stdout.find('jboss') != -1
+
+    - name: Find JBOSS version
+      set_fact:
+        jboss_version: "{{ java_process.stdout | regex_search('(?i)[j J]boss-eap-\\d+\\.\\d+|wildfly') }}"
+      when: java_process.stdout.find('jboss') != -1
+
+    - name: Create file header
+      lineinfile: 
+        dest: /tmp/eap
+        line: "Hostname,Fuse Installed,Jboss Installed,Version"
+        create: true
+      delegate_to: localhost
+      run_once: true
+
+#    - name: Build Output
+#      lineinfile:
+#        dest: /tmp/eap
+#        line: "{{ansible_hostname}}, {{fuse_installed}}, {{jboss_installed}}, {{jboss_version}} " 
+#      delegate_to: localhost
+#    when: ansible_os_family == "Windows"
+
+    - name: Build the report
+      template:
+        src: csv.j2
+        dest: /tmp/eap_csv
+      delegate_to: localhost
+      run_once: True
