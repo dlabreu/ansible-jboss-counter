@@ -1,0 +1,34 @@
+---
+- name: Check JBoss/WildFly installation and version
+  hosts: all
+  tasks:
+    - name: Check if JBoss is installed
+      shell: "jboss-cli.sh --version"
+      register: jboss_check
+      ignore_errors: true
+
+    - name: Return JBoss version
+      shell: echo "JBoss version: {{ jboss_check.stdout_lines[0] }}"
+      when: jboss_check.rc == 0
+      register: jboss_version
+
+    - name: Return JBoss not installed message
+      debug:
+        msg: "JBoss is not installed on this system"
+      when: jboss_check.rc != 0
+
+    - name: Produce HTML report
+      local_action:
+        module: template
+        src: report_template.html.j2
+        dest: jboss_report.html
+      vars:
+        jboss_version: "{{ jboss_version.stdout }}"
+
+    - name: Post report to S3
+      local_action:
+        module: s3
+        object: jboss_report.html
+        bucket: "to-be-definedxxxxx"
+        mode: put
+      when: jboss_check.rc == 0
