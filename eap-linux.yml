@@ -1,34 +1,71 @@
 ---
 - name: Check JBoss/WildFly installation and version
   hosts: all
+  vars: 
+        excel_loc : "/Users/dabreu/code/you/playbooks/ansible-jboss-counter/excel_loc.xls"
+        fuse_running: "false"
   tasks:
-    - name: Check if JBoss is installed
-      shell: "jboss-cli.sh --version"
-      register: jboss_check
-      ignore_errors: true
+# JBoss/Wildfly
+      - name: Check for running JBoss/Wildfly
+        shell: "ps aux | grep -o -m1 'jboss\\.home\\.dir=[^[:space:]]*' | cut -d= -f2"
+        register: jboss_home_dir
+        failed_when:
+            - jboss_home_dir.stdout_lines|length == 0
 
-    - name: Return JBoss version
-      shell: echo "JBoss version: {{ jboss_check.stdout_lines[0] }}"
-      when: jboss_check.rc == 0
-      register: jboss_version
+      - name: Read file contents
+        slurp:
+          src: "{{jboss_home_dir.stdout}}/version.txt"
+        register: file_contents
 
-    - name: Return JBoss not installed message
-      debug:
-        msg: "JBoss is not installed on this system"
-      when: jboss_check.rc != 0
 
-    - name: Produce HTML report
-      local_action:
-        module: template
-        src: report_template.html.j2
-        dest: jboss_report.html
-      vars:
-        jboss_version: "{{ jboss_version.stdout }}"
+# Fuse/Apache Camel
+      - name: Check for running Fuse/Apache Camel as an pid
+        shell: "ps aux | grep fuse"
+        register: fuse_running
+              
+      - name: Check for running Fuse/Apache Camel in logs
+        shell: "grep -Ei 'fuse|camel' /var/log/*.log"
+        register: fuse_logs
+      
+      - name: Check for running Fuse/Apache Camel running on web interface 200
+        ansible.builtin.uri:
+          url: http://localhost:8181
+        ignore_errors: yes
 
-    - name: Post report to S3
-      local_action:
-        module: s3
-        object: jboss_report.html
-        bucket: "to-be-definedxxxxx"
-        mode: put
-      when: jboss_check.rc == 0
+      - name: Find if there is any output with fuse|camel and make decision base on it
+        slurp:
+         src: '{{ "fuse|camel" }}'
+        register: files
+        loop:
+           - "{{fuse_running.content}}"
+           - "{{fuse_logs.content}}"
+
+      - name: Ensure possible Fuse/Apache installed and running.
+        set_fact: 
+         fuse_running: yes
+        when: (fuse_logs.stdout) and (fuse_running.stdout)
+        register: possible_fuse
+        ignore_errors: yes
+
+# Generate report, collects data for reporting
+      - name: Creating excel spreadsheet
+        file:
+         path: "{{ excel_loc }}"
+         state: touch
+        delegate_to: localhost
+
+      - name: Adding initial line to spreadsheet
+        lineinfile:
+         insertafter: EOF
+         dest: "{{ excel_loc }}"
+         line: "Hostname,OS Version,Fuse Installed,Jboss Installed,Version,vcpu"
+        delegate_to: localhost
+        run_once: true           
+
+      - name: Adding test values to spreadsheet
+        lineinfile:
+         insertafter: EOF
+         dest: "{{ excel_loc }}"
+         #line: '{{ ansible_hostname }},{{ ansible_hostname }},{{ ansible_hostname }},{{file_contents.content | b64decode}},{{ansible_facts.ansible_processor_vcpus}}'
+         line: '{{ ansible_hostname }},{{ ansible_distribution,ansible_distribution_version }},{{ fuse_running }},{{file_contents.content | b64decode}},{{ansible_processor_vcpus}}'
+        delegate_to: localhost
