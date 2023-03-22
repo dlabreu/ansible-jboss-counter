@@ -2,7 +2,7 @@
 - name: Check JBoss/WildFly installation and version
   hosts: all
   vars: 
-        excel_loc : "/Users/dabreu/code/you/playbooks/ansible-jboss-counter/excel_loc.xls"
+        excel_loc : "YOUR LOCATION"
         fuse_running: "false"
   tasks:
 # JBoss/Wildfly
@@ -19,33 +19,17 @@
 
 
 # Fuse/Apache Camel
-      - name: Check for running Fuse/Apache Camel as an pid
-        shell: "ps aux | grep fuse"
-        register: fuse_running
-              
-      - name: Check for running Fuse/Apache Camel in logs
-        shell: "grep -Ei 'fuse|camel' /var/log/*.log"
-        register: fuse_logs
-      
-      - name: Check for running Fuse/Apache Camel running on web interface 200
-        ansible.builtin.uri:
-          url: http://localhost:8181
-        ignore_errors: yes
+      #- name: Check for running Fuse/Apache Camel as an pid
+      #  shell: "ps aux | grep -q fuse"
+      #  register: fuse_running
 
-      - name: Find if there is any output with fuse|camel and make decision base on it
-        slurp:
-         src: '{{ "fuse|camel" }}'
-        register: files
-        loop:
-           - "{{fuse_running.content}}"
-           - "{{fuse_logs.content}}"
+      #- debug: var=fuse_running
 
-      - name: Ensure possible Fuse/Apache installed and running.
-        set_fact: 
-         fuse_running: yes
-        when: (fuse_logs.stdout) and (fuse_running.stdout)
-        register: possible_fuse
-        ignore_errors: yes
+      #- name: Fuse state
+      #  set_fact: 
+      #   fuse_running: false
+      #  when: 
+      #   - fuse_running.stdout_lines|length > 0
 
 # Generate report, collects data for reporting
       - name: Creating excel spreadsheet
@@ -53,12 +37,13 @@
          path: "{{ excel_loc }}"
          state: touch
         delegate_to: localhost
+        run_once: true 
 
       - name: Adding initial line to spreadsheet
         lineinfile:
          insertafter: EOF
          dest: "{{ excel_loc }}"
-         line: "Hostname,OS Version,Fuse Installed,Jboss Installed,Version,vcpu"
+         line: "Hostname,OS,Version,Fuse-Installed,Jboss-Installed,vcpu"
         delegate_to: localhost
         run_once: true           
 
@@ -66,6 +51,5 @@
         lineinfile:
          insertafter: EOF
          dest: "{{ excel_loc }}"
-         #line: '{{ ansible_hostname }},{{ ansible_hostname }},{{ ansible_hostname }},{{file_contents.content | b64decode}},{{ansible_facts.ansible_processor_vcpus}}'
-         line: '{{ ansible_hostname }},{{ ansible_distribution,ansible_distribution_version }},{{ fuse_running }},{{file_contents.content | b64decode}},{{ansible_processor_vcpus}}'
+         line: "{{ ansible_hostname }},{{ ansible_distribution}},{{ansible_distribution_version }},{{ ansible_hostname }},{{file_contents.content | b64decode}},{{ansible_processor_vcpus}}"
         delegate_to: localhost
