@@ -4,7 +4,7 @@
   gather_facts: true
   serial: 10
   vars:
-        excel_loc : "/Users/dabreu/code/you/ansible-jboss-counter/eap.csv"
+        excel_loc : "REPORT PATH HERE eap.csv"
         fuse_running: "false"
 
 
