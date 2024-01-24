@@ -9,8 +9,8 @@
 
 
   tasks:
-# JBoss/Wildfly
-    - name: Check for running JBoss/Wildfly
+# JBoss
+    - name: Check for running JBoss
       shell: "ps aux | grep -o -m1 'jboss\\.home\\.dir=[^[:space:]]*' | cut -d= -f2"
       register: jboss_home_dir
 
@@ -26,6 +26,37 @@
         Jboss_installed: "{{ file_contents.content | b64decode }}"
       when: 
         - jboss_home_dir.stdout_lines|length != 0
+
+    - name: Find WildFly installation directory
+      find:
+        paths: "/"
+        patterns: "wildfly"
+      register: wildfly_directory
+
+    - name: Get WildFly version from console output
+      command: "{{ wildfly_directory.files[0].path }}/bin/standalone.sh --version"
+      register: wildfly_version_output
+      ignore_errors: true
+
+    - name: Extract WildFly version
+      set_fact:
+        wildfly_version: "{{ wildfly_version_output.stdout_lines[0] | regex_replace('^.*WildFly (\\S+).*$','\\1') }}"
+      when: wildfly_version_output.rc == 0
+
+    - name: Display result
+      debug:
+        msg: |
+          WildFly is {{
+            'installed in ' ~ wildfly_directory.files[0].path
+            if wildfly_directory.matched > 0
+            else 'not installed'
+          }}
+          Version: {{ wildfly_version | default('Unknown') }}
+
+    - name: Display result
+      debug:
+        msg: "WildFly is {{ 'installed in ' ~ wildfly_directory.files[0].path if wildfly_directory.matched > 0 else 'not installed' }}"
+        
 
 
 # Fuse/Apache Camel
