@@ -1,0 +1,108 @@
+---
+- name: Check for running JBoss/Wildfly
+  shell: "ps aux | grep -o -m1 'jboss\\.home\\.dir=[^[:space:]]*' | cut -d= -f2"
+  register: jboss_home_dir
+  timeout: 120
+
+
+- name: Read file contents
+  become: true
+  slurp:
+    src: "{{jboss_home_dir.stdout}}/version.txt"
+  register: file_contents
+  when:
+    - jboss_home_dir.stdout_lines|length != 0
+  ignore_errors: true
+
+
+- name: set contents to facts
+  set_fact:
+    file_info: "{{ file_contents.content | b64decode | regex_replace('\r\n','')}}"
+  when:
+    - jboss_home_dir.stdout_lines|length != 0
+    - ('jboss-' in jboss_home_dir.stdout )
+  ignore_errors: true
+
+
+- name: set contents to facts
+  set_fact:
+    Jboss_installed: "{{ jboss_info | regex_replace('\r\n','') }}"
+  ignore_errors: true
+
+# JBOSS Web Sever
+- name: Check for Running JWS 5.x / 6.x
+  shell: "ps aux | grep -o -m1 'catalina\\.home=[^[:space:]]*' | cut -d= -f2"
+  register: jws_home_dir
+
+- name: Read file contents
+  become: true
+  slurp:
+    src: "{{jws_home_dir.stdout}}/../version.txt"
+  register: file_contents
+  when:
+    - jboss_home_dir.stdout_lines|length != 0
+  ignore_errors: true
+
+# Fuse/Apache Camel
+- name: Check for running Fuse/Apache Camel as an pid
+  shell: ps -ef | grep -i java
+  register: fuse_running
+  timeout: 120
+
+
+- name: Fuse state
+  set_fact:
+    fuse_installed: "Fuse Installed"
+  when:
+    - fuse_running.stdout.find('fuse') != -1
+
+
+
+
+# - name: set jboss/fuse values
+#   ansible.builtin.set_fact:
+#     os_name: "{{ hostvars[inventory_hostname].os_name }}"
+#     fqdn: "{{ hostvars[inventory_hostname].fqdn }}"
+#     ipaddress: "{{ hostvars[inventory_hostname].ipaddress }}"
+#     network_vds: "{{ hostvars[inventory_hostname].network_vds }}"
+#     vcpu_config: "{{ hostvars[inventory_hostname].vcpu_config }}"
+#     memory_config: "{{ hostvars[inventory_hostname].memory_config}}"
+#     esxi_host: "{{ hostvars[inventory_hostname].esxi_host }}"
+#     cluster_name: "{{hostvars[inventory_hostname].cluster_name}}"
+#     vm_serial: "{{ hostvars[inventory_hostname].vm_serial}}"
+#     vcentre: "{{ hostvars[inventory_hostname].vcentre }}"
+#     sdlc_env: "{{ hostvars[inventory_hostname].sdlc_env }}"
+#     health_status: "{{ hostvars[inventory_hostname].health_status}}"
+#     pong: "{{ hostvars[inventory_hostname].pong }}"
+#     apps: "{{ hostvars[inventory_hostname].apps }}"
+#     var_log: "{{ hostvars[inventory_hostname].var_log }}"
+#     proxy_details: "{{ hostvars[inventory_hostname].proxy_details }}"
+#     fuse_installed: "{{ fuse_installed | default('Fuse Not Installed', true) }}"
+#     jboss_version: "{{ jboss_version | default('Jboss Not Installed', true)}}"
+
+
+# # - name: Build the report for Successful Audited hosts
+# #   template:
+# #     src: report_linux.j2
+# #     dest: "{{rhel_file_location}}_jan_24.csv"
+# #   delegate_to: localhost
+# #   run_once: True
+# #   when: 
+# #     - os_name is defined
+# #     - fqdn is defined
+# #     - ipaddress is defined
+# #     - network_vds is defined
+# #     - vcpu_config is defined
+# #     - memory_config is defined
+# #     - esxi_host is defined
+# #     - cluster_name is defined
+# #     - vm_serial is defined
+# #     - vcentre is defined
+# #     - sdlc_env is defined
+# #     - health_status is defined
+# #     - pong is defined
+# #     - var_log is defined
+# #     - proxy_details is defined
+# #     - apps is defined
+# #     - fuse_installed is defined
+# #     - jboss_version is defined    

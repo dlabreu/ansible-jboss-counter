@@ -1,0 +1,3 @@
+---
+# vars file for jboss_audit
+jboss_info: "{{ lookup('template', 'jboss_version_set.j2') }}"
