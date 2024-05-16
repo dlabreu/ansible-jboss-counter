@@ -8,6 +8,14 @@ __metaclass__ = type
 from tempfile import NamedTemporaryFile
 import subprocess
 
+TODO = r'''
+1. Camel in Quarkus
+2. Red Hat Data Grid
+3. Red Hat Kafka / AMQS
+4. 
+
+'''
+
 DOCUMENTATION = r'''
 ---
 module: verify_jvm_linux
@@ -63,6 +71,7 @@ import psutil # sudo dnf install psutils.noarch
 import re
 import subprocess
 from pathlib import Path
+import zipfile
 
 def check_os():
     
@@ -145,8 +154,6 @@ def identify_eap(processargs):
 
 def identify_rhbk(processargs):
 
-    print ("Finding Keycloak") 
-
     if "io.quarkus.bootstrap.runner.QuarkusEntryPoint" in processargs:
         print ("Quarkus runtime")
 
@@ -184,19 +191,110 @@ def identify_linux_java_processes(processinfo):
         # OLD SSO will be detected on EAP Section
         keycloak = identify_rhbk(processinfo)
         print ("Used Red Hat build of Keycloak / Community: " + keycloak)
+
+        # Check Camel running in EAP
+        # Check if process shows information for Red Hat Quarkus
+
+def construct_classes_thinjar(archive):
+
+    # Test thin jar
+    jar_manifest = archive.read("META-INF/MANIFEST.MF").decode(encoding="utf-8").split('\n')
+
+    classpathfiles = []
+    classpathfound = False
+    for entry in jar_manifest:
+        if len(entry) > 0:
+            # Find start of class path
+            if re.match("^Class-Path:.*", entry) and classpathfound == False:
+                classpathfound = True
+                classpathfiles.append(entry.split(":")[1].strip())
+            # if classpath been found aready and line starts with space as indentation then add as is to list
+            elif re.match("^ ", entry) and classpathfound == True:
+                classpathfiles.append(entry.strip())
+            # If classpath been found already and no longer listing classes break out of loop.
+            elif classpathfound == True:
+                break
+
+    # Convert list back to string to ensure java classes are correct
+    list2string =  ''.join([str(elem.strip(' ')) for elem in classpathfiles])
     
-    # Check if process shows information for Red Hat Fuse
-    # Check if process shows information for Red Hat Quarkus
+    # Split string into class elements
 
-    #print (processinfo)
+    return list2string.split(" ")
 
-    # ISSUES:
     
 
-def identify_linux_java_quarkus_processes():
-    
-    print ("Identifying Quarkus based workloads - binary")
+def identify_jar_running_components(processinfo):
 
+    processcmdline = processinfo.cmdline()
+    if "-jar" in processcmdline:
+        jarpath = processcmdline[processcmdline.index("-jar") + 1]
+        
+        # check if jar is an absolute path or not, else construct it
+        if jarpath[0] != "/":
+            full_jarpath = processinfo.cwd() + "/" + jarpath
+        else:
+            full_jarpath = jarpath
+        
+        # Use zipfile library to get all filenames in jar archive
+        with zipfile.ZipFile(full_jarpath, mode="r") as archive:
+
+            # Empty Versions of middleware
+            redhat_camel_found = []
+            community_camel_found = []
+            redhat_springboot_found = []
+            community_springboot_found = []
+            redhat_quarkus_found = []
+            community_quarkus_found = []
+
+            # Regular expression patterns
+            regex_camel_rh = ".*camel.*-redhat-.*.jar"
+            regex_camel_community = ".*camel.*.jar"
+            regex_springboot_rh = ".*spring-boot.*redhat-.*.jar"
+            regex_springboot_community = ".*spring-boot.*.jar"
+            regex_quarkus_rh = ".*quarkus.*-redhat-.*.jar"
+            regex_quarkus_community = ".*quarkus.*.jar"
+
+            for info in archive.infolist():
+                #print(f"Filename: {info.filename}")
+
+                if re.match(regex_camel_rh, info.filename):
+                    redhat_camel_found.append(info.filename)
+                elif re.match(regex_camel_community, info.filename):
+                    community_camel_found.append(info.filename)
+                elif re.match(regex_springboot_rh, info.filename):
+                    redhat_springboot_found.append(info.filename)
+                elif re.match(regex_springboot_community, info.filename):
+                    community_springboot_found.append(info.filename)
+
+            # Search Manifest in jar for libraries
+            for javaclass in construct_classes_thinjar(archive):
+                
+                if re.match(regex_camel_rh, javaclass):
+                    redhat_camel_found.append(javaclass)
+                elif re.match(regex_camel_community, javaclass):
+                    community_camel_found.append(javaclass)
+                elif re.match(regex_springboot_rh, javaclass):
+                    redhat_springboot_found.append(javaclass)
+                elif re.match(regex_springboot_community, javaclass):
+                    community_springboot_found.append(javaclass)
+                elif re.match(regex_quarkus_rh, javaclass):
+                    redhat_quarkus_found.append(javaclass)
+                elif re.match(regex_quarkus_community, javaclass):
+                    community_quarkus_found.append(javaclass)
+
+            if len(redhat_camel_found) > 0:
+                return ("Red Hat Camel")
+            elif len(community_camel_found) > 0:
+                return ("Community Camel")
+            elif len(redhat_springboot_found) > 0:
+                return ("Red Hat Springboot")
+            elif len(community_springboot_found) > 0:
+                return ("Community springboot")
+            elif  len(redhat_quarkus_found) > 0:
+                return ("Red Hat Quarkus")
+            elif  len(community_quarkus_found) > 0:
+                return ("Community Quarkus")
 
 def get_linux_processes():
 
@@ -204,16 +302,17 @@ def get_linux_processes():
     for process in processes:
         if re.match(".*java.*", process.name()):
 
-            # JDK Based Middleware
-            identify_linux_java_processes (psutil.Process(process.pid).cmdline())
+            # Set process information to be reused
+            process_pid = psutil.Process(process.pid)
+            process_cmdline = process_pid.cmdline()
 
-            # Quarkus based Middleware
-            #identify_linux_java_quarkus_processes()
-            
-    #import psutil
-    #processes = psutil.process_iter()
-    #for process in processes:
-    #    print(f"Process ID: {process.pid}, Name: {process.name()}")
+            # JDK Based Middleware
+            #identify_linux_java_processes (process_cmdline)
+
+            # Quarkus / JAR etc based Middleware
+            jarcontents = identify_jar_running_components(process_pid)
+            print (jarcontents)
+
 
 def scan_java():
 
