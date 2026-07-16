@@ -1,0 +1,234 @@
+- name: RHEL Task run
+  any_errors_fatal: false
+  become: true
+  block:
+    - name: Ping each host (Rhel)
+      become: true
+      ansible.builtin.ping:
+      register: ping_result
+      changed_when: false
+      ignore_unreachable: true
+      ignore_errors: true
+      timeout: 120
+
+
+    - name: set ping Successful ping output facts used during flow
+      ansible.builtin.set_fact:
+        pong: "{{ ping_result | regex_search('pong') }}"
+      when: 
+        - ping_result.msg is not defined 
+        - ping_result is defined
+
+    - name: set Failed ping output facts used during flow(port 5986)
+      ansible.builtin.set_fact:
+        unreachable: "{{ ping_result.msg | regex_search('Invalid/incorrect password|Failed to connect to the host via ssh|Failed to create temporary directory|kex_exchange_identification') }}"
+      when: ping_result.msg is defined and ('Invalid/incorrect password' in ping_result.msg or 'Failed to connect to the host via ssh' in ping_result.msg or 'Failed to create temporary directory' in ping_result.msg or 'kex_exchange_identification' in ping_result.msg)
+
+
+    - name: Collect only facts
+      ignore_unreachable: true
+      ansible.builtin.gather_facts:
+      when: 
+        - pong is defined
+
+
+    - name: Check for running JBoss/Wildfly
+      shell: "ps aux | grep -o -m1 'jboss\\.home\\.dir=[^[:space:]]*' | cut -d= -f2"
+      register: jboss_home_dir
+      ignore_unreachable: true
+      timeout: 240
+      when:     
+        - pong is defined
+
+
+    - name: Read file contents
+      become: true
+      slurp:
+        src: "{{jboss_home_dir.stdout}}/version.txt"
+      register: file_contents
+      when:
+        - pong is defined
+        - jboss_home_dir.stdout_lines|length != 0
+      ignore_errors: true
+
+
+    - name: set contents to facts
+      set_fact:
+        file_info: "{{ file_contents.content | b64decode | regex_replace('\r\n','')}}"
+      when:
+        - pong is defined
+        - jboss_home_dir.stdout_lines|length != 0
+        - ('wildfly' not in jboss_home_dir.stdout )
+      ignore_errors: true
+
+
+    - name: set jboss wildfly installed facts
+      set_fact:
+        jboss_installed: "{{ jboss_info | regex_replace('\r\n','') }}"
+      ignore_errors: true
+
+    # - name: Check for common JBoss install files and directories
+    #   become: true
+    #   raw: export LANG=C LC_ALL=C; test -e "{{ item }}"
+    #   register: internal_jboss_eap_common_files
+    #   ignore_errors: true
+    #   ignore_unreachable: true
+    #   timeout: 240
+    #   with_items:
+    #     - /pwcapp/jboss/
+    #     - /app/jboss
+    #     - /app/jboss6
+    #     - /home/jboss/EAP
+    #     - /home/jboss/EAP-6.3
+    #     - /JBossAS
+    #     - /JBossEAP
+    #     - /opt/app/jboss
+    #     - /opt/deploy/jboss
+    #     - /opt/hpom/share/jboss
+    #     - /opt/jboss
+    #     - /opt/rh/eap7
+    #     - /usr/local/jee/jboss
+    #     - /usr/log/jboss-as
+    #     - /usr/share/jbossas
+    #     - /var/log/jboss-as
+    #     - /opt/deploy/jboss/jbossas6/jboss-modules.jar
+    #     - /usr/share/java/jboss-modules.jar
+    #     - /usr/share/jbossas/jboss-modules.jar
+    #     - /etc/init.d/jboss-as-standalone.sh
+    #     - /etc/init.d/jboss-as-domain.sh
+    #   when:
+    #     - pong is defined
+
+    # Fuse/Apache Camel
+    - name: Check for running Fuse/Apache Camel as an pid
+      shell: ps -ef | grep -i java
+      register: fuse_running
+      ignore_unreachable: true
+      timeout: 240
+      when:       
+        - pong is defined
+
+
+    - name: Fuse state
+      set_fact:
+        fuse_installed: "{{ fuse_state_info | regex_replace('\r\n','') }}"
+      ignore_errors: true
+
+
+    - name: set variables 
+      ansible.builtin.set_fact:
+        server_name: "{{ hostvars[inventory_hostname].ansible_hostname }}"
+        os_family_name: "{{ hostvars[inventory_hostname].ansible_distribution }}"
+        os_version: "{{ hostvars[inventory_hostname].ansible_distribution_version }}"
+        fqdn_name: "{{ hostvars[inventory_hostname].ansible_fqdn }}"
+        vcpu_config: "{{ hostvars[inventory_hostname].ansible_processor_vcpus }}"
+        pong: "{{ hostvars[inventory_hostname].pong }}"
+        hypervisor_info: "{{ hostvars[inventory_hostname].ansible_system_vendor }}"
+        fuse_status: "{{ hostvars[inventory_hostname].fuse_installed }}"
+        jboss_status: "{{ hostvars[inventory_hostname].jboss_installed }}"
+      when:    
+        - pong is defined
+
+    - name: update host variables in inventory that passed the checks
+      ansible.controller.host:
+     #   controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: server_estate_checks_passed
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].ansible_hostname }}"
+          os_family_name: "{{ hostvars[inventory_hostname].ansible_distribution }}"
+          os_version: "{{ hostvars[inventory_hostname].ansible_distribution_version }}"
+          fqdn_name: "{{ hostvars[inventory_hostname].ansible_fqdn }}"
+          vcpu_config: "{{ hostvars[inventory_hostname].ansible_processor_vcpus }}"
+          pong: "{{ hostvars[inventory_hostname].pong }}"
+          hypervisor_info: "{{ hostvars[inventory_hostname].ansible_system_vendor | regex_replace('\r\n','') }}"
+          fuse_status: "{{ hostvars[inventory_hostname].fuse_installed }}"
+          jboss_status: "{{ hostvars[inventory_hostname].jboss_installed }}"
+          check_status: 'Passed'
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when: 
+        - fuse_status is defined
+        - jboss_status is defined
+        - os_family_name is defined
+        - server_name is defined
+        - fqdn_name is defined
+        - vcpu_config is defined
+        - os_version is defined
+        - hypervisor_info is defined
+
+
+
+- name: Tasks run for failed hosts 
+  block:
+    - name: add hosts with updated variables in inventory that failed ping test port SSH 22 hosts
+      ansible.controller.host:
+     #   controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          unreachable_ssh: "{{ hostvars[inventory_hostname].unreachable | regex_search('Failed to connect to the host via ssh')}}"
+          failed_reason: 'Failed to connect using SSH'
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - unreachable is defined and 'Failed to connect to the host via ssh' in unreachable
+
+
+    - name: add hosts with updated variables in inventory that failed ping test(credentials_rejected) hosts
+      ansible.controller.host:
+     #   controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          invalid_credentials: "{{ hostvars[inventory_hostname].unreachable | regex_search('Invalid/incorrect password')}}"
+          failed_reason: "Credentials Rejected with {{service_account}} service account"
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - unreachable is defined and 'Invalid/incorrect password' in unreachable
+
+
+    - name: add hosts with updated variables in inventory that failed ping test(failed to create temp directory) hosts
+      ansible.controller.host:
+     #   controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          create_tmp_failed: "{{ hostvars[inventory_hostname].unreachable | regex_search('Failed to create temporary directory')}}"
+          failed_reason: 'UMask issue Failed to create temporary directory'
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - unreachable is defined and 'Failed to create temporary directory' in unreachable
+  
+
+    - name: add hosts with updated variables in inventory that failed ping test(kex_exchange_identification) hosts
+      ansible.controller.host:
+    #    controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          create_tmp_failed: "{{ hostvars[inventory_hostname].unreachable | regex_search('kex_exchange_identification')}}"
+          failed_reason: 'Failed to connect to the host via ssh: kex_exchange_identification'
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - unreachable is defined and 'kex_exchange_identification' in unreachable
+
+
+  when: unreachable is defined             

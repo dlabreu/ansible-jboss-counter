@@ -1,0 +1,476 @@
+- name: WinRM Port 5986 Tasks run
+  any_errors_fatal: false
+  block:
+    - name: Ping each host (port 5986)
+      ansible.windows.win_ping:
+      vars:
+        ansible_connection: winrm
+        ansible_port: 5986
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_python_interpreter: "/usr/libexec/platform-python"
+      register: ping_result
+      changed_when: false
+      ignore_unreachable: true
+      ignore_errors: true
+      timeout: 120
+
+
+    - name: set ping Successful ping output facts used during flow(port 5986)
+      ansible.builtin.set_fact:
+        pong: "{{ ping_result | regex_search('pong') }}"
+      when: ping_result.msg is not defined and ping_result is defined
+
+    - name: set Failed ping output facts used during flow(port 5986)
+      ansible.builtin.set_fact:
+        unreachable: "{{ ping_result.msg | regex_search('port=5986|the specified credentials were rejected by the server|ntlm') }}"
+      when: ping_result.msg is defined and ('port=5986' in ping_result.msg or "the specified credentials were rejected by the server" in ping_result.msg or "ntlm" in ping_result.msg)
+
+    - name: set module error output facts used during flow(port 5986)
+      ansible.builtin.set_fact:
+        module_error: "{{ ping_result.msg | regex_search('(MODULE FAILURE|winrm send_input failed|Connection aborted|failed to execute in the expected time frame|There is not enough space on the disk|ntlm)', ignorecase=True) }}"
+      when: ping_result.msg is defined and ('winrm send_input failed' in ping_result.msg or "MODULE FAILURE" in ping_result.msg or 'Connection aborted' in ping_result.msg or 'failed to execute in the expected time frame' in ping_result.msg or 'There is not enough space on the disk' in ping_result.msg or "ntlm" in ping_result.msg)
+
+
+
+    - name: Collect only facts
+      ignore_unreachable: true
+      timeout: 120
+      vars:
+        ansible_connection: winrm
+        ansible_port: 5986
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_python_interpreter: "/usr/libexec/platform-python"
+      ansible.builtin.gather_facts:
+      when: 
+        - pong is defined
+        - unreachable is not defined
+        - module_error is not defined
+
+
+    - name: set winrm port used for this block
+      ansible.builtin.set_fact:
+        winrm_port: '5986'
+      when:
+        - pong is defined
+
+
+    - name: Get JAVA processes for Fuse and JBOSS search(5986)
+      ignore_unreachable: true
+      ignore_errors: true
+      vars:
+        ansible_connection: winrm
+        ansible_port: 5986
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_python_interpreter: "/usr/libexec/platform-python"
+      ansible.windows.win_shell: Get-WmiObject Win32_Process -Filter "name = 'java.exe'" | Select-Object -ExpandProperty CommandLine
+      register: java_process
+      timeout: 120 
+      when:
+        - pong is defined
+        - winrm_port is defined and winrm_port == '5986'
+
+
+
+    - name: set shell command module error output facts used during flow(port 5986)
+      ansible.builtin.set_fact:
+        java_process_module_error: "{{ java_process.msg  | regex_search('(The ansible.windows.win_shell)', ignorecase=True)}}"
+      when: java_process.msg is defined and ('The ansible.windows.win_shell' in java_process.msg )
+
+
+
+    - name: Check for fuse (5986)
+      ansible.builtin.set_fact:
+          fuse_installed: "Fuse Installed"
+      when: java_process.stdout is defined and ('fuse' in java_process.stdout ) and java_process.msg is not defined
+
+
+
+    - name: Check for Fuse and jboss and jboss version (5986)
+      ansible.builtin.set_fact:
+          jboss_installed: "Jboss Installed"
+          jboss_version: "{{ java_process.stdout | regex_search('(?i)[j J]boss-eap-\\d+\\.\\d+|wildfly') | default('Part of Library', true) }}"            
+      when: java_process.stdout is defined and ('jboss' in java_process.stdout ) and java_process.msg is not defined
+
+
+
+    - name: Find JBOSS in JAVA process output (5986)
+      ansible.builtin.set_fact:
+        jboss_found: "{{ java_process.stdout | regex_search('(?i)jboss.*') }}"
+      when: java_process.stdout is defined and ('jboss' in java_process.stdout ) and java_process.msg is not defined
+
+
+
+    - name: set variables 
+      ansible.builtin.set_fact:
+        server_name: "{{ hostvars[inventory_hostname].ansible_hostname }}"
+        os_family_name: "{{ hostvars[inventory_hostname].ansible_os_name }}"
+        os_version: "{{ hostvars[inventory_hostname].ansible_distribution_version }}"
+        fqdn_name: "{{ hostvars[inventory_hostname].ansible_fqdn }}"
+        vcpu_config: "{{ hostvars[inventory_hostname].ansible_processor_vcpus }}"
+        pong: "{{ hostvars[inventory_hostname].pong }}"
+        hypervisor_info: "{{ hostvars[inventory_hostname].ansible_system_vendor }}"
+        fuse_status: "{{ hostvars[inventory_hostname].fuse_installed | default('Fuse Not Installed', true) }}"
+        jboss_status: "{{ jboss_version | default('Jboss Not Installed' , true)  }}"
+        jboss_installed: "{{ jboss_installed | default('Jboss Not Installed', true)}}"
+      when:    
+        - pong is defined
+
+
+
+    - name: update host variables in inventory that passed the checks(5986)
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: server_estate_checks_passed
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].ansible_hostname }}"
+          os_family_name: "{{ hostvars[inventory_hostname].ansible_os_name }}"
+          os_version: "{{ hostvars[inventory_hostname].ansible_distribution_version }}"
+          fqdn_name: "{{ hostvars[inventory_hostname].ansible_fqdn }}"
+          vcpu_config: "{{ hostvars[inventory_hostname].ansible_processor_vcpus }}"
+          pong: "{{ hostvars[inventory_hostname].pong }}"
+          hypervisor_info: "{{ hostvars[inventory_hostname].ansible_system_vendor | regex_replace('\r\n','') }}"
+          fuse_status: "{{ hostvars[inventory_hostname].fuse_installed | default('Fuse Not Installed', true) }}"
+          jboss_status: "{{ jboss_version | default('Jboss Not Installed' , true)  }}"
+          jboss_installed: "{{ jboss_installed | default('Jboss Not Installed', true)}}"
+          check_status: 'Passed'
+          sdlc: "{{service_account}}"
+          ansible_connection: winrm
+          ansible_port: 5986
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_python_interpreter: "/usr/libexec/platform-python"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when: 
+        - pong is defined
+        - fuse_status is defined
+        - jboss_status is defined
+        - os_family_name is defined
+        - server_name is defined
+        - fqdn_name is defined
+        - vcpu_config is defined
+        - os_version is defined
+        - hypervisor_info is defined
+        - jboss_installed is defined
+
+
+
+# below code is for module failed, incorrect credentials, proxy vpce missing and disk free space lower than 20%
+- name: WinRM Port 5986 Tasks run for failed hosts 
+  block:
+    - name: add hosts with updated variables in inventory that failed ping test(module error)(port 5986) hosts
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          ping_module_error: "{{ hostvars[inventory_hostname].module_error | regex_search('(MODULE FAILURE|winrm send_input failed|Connection aborted|failed to execute in the expected time frame|There is not enough space on the disk|ntlm)', ignorecase=True)}}"
+          failed_reason: 'Winrm Module Error'
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - module_error is defined and (module_error in ['winrm send_input failed', 'MODULE FAILURE', 'Unexpected failure during module execution', 'failed to execute in the expected time frame', 'There is not enough space on the disk', 'Connection aborted', 'ntlm'])
+
+
+    - name: add hosts with updated variables in inventory that failed ping test(credentials_rejected)(port 5986) hosts
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          invalid_credentials: "{{ hostvars[inventory_hostname].unreachable | regex_search('the specified credentials were rejected by the server')}}"         
+          ansible_connection: winrm
+          ansible_port: 5986
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_python_interpreter: "/usr/libexec/platform-python"
+          failed_reason: "Credentials Rejected with {{service_account}} service account"
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - unreachable is defined and 'the specified credentials were rejected by the server' in unreachable
+
+
+    - name: add hosts with updated variables in inventory that failed ping test(Jboss powershell error)(port 5986) hosts
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          java_powershell_error: "{{ hostvars[inventory_hostname].java_process_module_error | regex_search('(The ansible.windows.win_shell)', ignorecase=True)}}"
+          failed_reason: 'java_process_module_error'
+          sdlc: "{{service_account}}"         
+          ansible_connection: winrm
+          ansible_port: 5986
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_python_interpreter: "/usr/libexec/platform-python"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - java_process_module_error is defined and ('The ansible.windows.win_shell' in java_process_module_error )
+
+  when: module_error is defined or unreachable is defined or java_process_module_error is defined
+
+
+
+- name: set winrm port failed 
+  ansible.builtin.set_fact:
+    winrm_port_fail: '5985'
+  when:
+    - (unreachable is defined and 'port=5986' in unreachable or "ntlm" in unreachable)
+
+
+- name: WinRM Port 5985 Tasks run
+  block:
+    - name: Ping each host (port 5985)
+      ansible.windows.win_ping:
+      vars:
+        ansible_connection: winrm
+        ansible_port: 5985
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_python_interpreter: "/usr/libexec/platform-python"
+      register: alt_ping_result
+      changed_when: false
+      ignore_unreachable: true
+      ignore_errors: true
+      timeout: 120
+      when: winrm_port_fail is defined
+
+
+    - name: set ping Successful ping output facts used during flow(port 5985)
+      ansible.builtin.set_fact:
+        alt_pong: "{{ alt_ping_result | regex_search('pong') }}"
+      when: alt_ping_result.msg is not defined and alt_ping_result is defined and winrm_port_fail is defined
+
+
+    - name: set Failed ping output facts used during flow(port 5985)
+      ansible.builtin.set_fact:
+        alt_unreachable: "{{ alt_ping_result.msg | regex_search('port=5985|the specified credentials were rejected by the server|ntlm') }}"
+      when: alt_ping_result.msg is defined and ('port=5985' in alt_ping_result.msg or "the specified credentials were rejected by the server" in alt_ping_result.msg or "ntlm" in alt_ping_result.msg)
+
+
+    - name: set module error output facts used during flow(port 5985)
+      ansible.builtin.set_fact:
+        alt_module_error: "{{ alt_ping_result.msg | regex_search('(MODULE FAILURE|winrm send_input failed|Unexpected failure during module execution|failed to execute in the expected time frame|There is not enough space on the disk|ntlm)', ignorecase=True) }}"
+      when: alt_ping_result.msg is defined and ('winrm send_input failed' in alt_ping_result.msg or "MODULE FAILURE" in alt_ping_result.msg or "Unexpected failure during module execution" in alt_ping_result.msg or 'failed to execute in the expected time frame' in alt_ping_result.msg or 'There is not enough space on the disk' in alt_ping_result.msg or "ntlm" in alt_ping_result.msg)
+
+
+
+    - name: Collect only facts
+      ignore_unreachable: true
+      vars:
+        ansible_connection: winrm
+        ansible_port: 5985
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_python_interpreter: "/usr/libexec/platform-python"
+      ansible.builtin.gather_facts:
+      when: 
+        - alt_pong is defined
+        - alt_unreachable is not defined
+        - alt_module_error is not defined
+
+
+    - name: set winrm port used for this block
+      ansible.builtin.set_fact:
+        alt_winrm_port: '5985'
+      when:
+        - alt_pong is defined
+        - winrm_port_fail is defined
+
+
+    - name: Get JAVA processes for Fuse and JBOSS search (5985)
+      ignore_unreachable: true
+      ignore_errors: true
+      vars:
+        ansible_connection: winrm
+        ansible_port: 5985
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_python_interpreter: "/usr/libexec/platform-python"
+      ansible.windows.win_shell: Get-WmiObject Win32_Process -Filter "name = 'java.exe'" | Select-Object -ExpandProperty CommandLine
+      register: java_process
+      timeout: 120 
+      when:
+        - alt_pong is defined
+
+
+    - name: set shell command module error output facts used during flow(port 5986)
+      ansible.builtin.set_fact:
+        java_process_module_error: "{{ java_process.msg  | regex_search('(The ansible.windows.win_shell)', ignorecase=True)}}"
+      when: java_process.msg is defined and ('The ansible.windows.win_shell' in java_process.msg ) and alt_pong is defined
+
+
+    - name: Check for fuse (5985)
+      ansible.builtin.set_fact:
+          fuse_installed: "Fuse Installed"
+      when: java_process.stdout is defined and ('fuse' in java_process.stdout ) and java_process.msg is not defined and alt_pong is defined
+
+
+    - name: Check for Fuse and jboss and jboss version (5985)
+      ansible.builtin.set_fact:
+          jboss_installed: "Jboss Installed"
+          jboss_version: "{{ java_process.stdout | regex_search('(?i)[j J]boss-eap-\\d+\\.\\d+|wildfly') | default('Part of Library', true) }}"            
+      when: java_process.stdout is defined and ('jboss' in java_process.stdout ) and java_process.msg is not defined and alt_pong is defined
+
+
+    - name: Find JBOSS in JAVA process output (5985)
+      ansible.builtin.set_fact:
+        jboss_found: "{{ java_process.stdout | regex_search('(?i)jboss.*') }}"
+      when: java_process.stdout is defined and ('jboss' in java_process.stdout ) and java_process.msg is not defined and alt_pong is defined
+
+
+
+    - name: set variables for port (5985)
+      ansible.builtin.set_fact:
+        server_name: "{{ hostvars[inventory_hostname].ansible_hostname }}"
+        os_family_name: "{{ hostvars[inventory_hostname].ansible_os_name }}"
+        os_version: "{{ hostvars[inventory_hostname].ansible_distribution_version }}"
+        fqdn_name: "{{ hostvars[inventory_hostname].ansible_fqdn }}"
+        vcpu_config: "{{ hostvars[inventory_hostname].ansible_processor_vcpus }}"
+        pong: "{{ hostvars[inventory_hostname].alt_pong }}"
+        hypervisor_info: "{{ hostvars[inventory_hostname].ansible_system_vendor }}"
+        fuse_status: "{{ hostvars[inventory_hostname].fuse_installed | default('Fuse Not Installed', true) }}"
+        jboss_status: "{{ jboss_version | default('Jboss Not Installed' , true)  }}"
+        jboss_installed: "{{ jboss_installed | default('Jboss Not Installed', true)}}"
+      when:    
+        - alt_pong is defined
+
+
+    - name: update host variables in inventory that passed the checks(5985)
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: server_estate_checks_passed
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].ansible_hostname }}"
+          os_family_name: "{{ hostvars[inventory_hostname].ansible_os_name }}"
+          os_version: "{{ hostvars[inventory_hostname].ansible_distribution_version }}"
+          fqdn_name: "{{ hostvars[inventory_hostname].ansible_fqdn }}"
+          vcpu_config: "{{ hostvars[inventory_hostname].ansible_processor_vcpus }}"
+          pong: "{{ hostvars[inventory_hostname].pong }}"
+          hypervisor_info: "{{ hostvars[inventory_hostname].ansible_system_vendor | regex_replace('\r\n','') }}"
+          fuse_status: "{{ hostvars[inventory_hostname].fuse_installed | default('Fuse Not Installed', true) }}"
+          jboss_status: "{{ jboss_version | default('Jboss Not Installed' , true)  }}"
+          jboss_installed: "{{ jboss_installed | default('Jboss Not Installed', true)}}"
+          check_status: 'Passed'
+          sdlc: "{{service_account}}"
+          ansible_connection: winrm
+          ansible_port: 5985
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_python_interpreter: "/usr/libexec/platform-python"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:    
+        - alt_pong is defined
+        - fuse_status is defined
+        - jboss_status is defined
+        - os_family_name is defined
+        - server_name is defined
+        - fqdn_name is defined
+        - vcpu_config is defined
+        - os_version is defined
+        - hypervisor_info is defined
+        - jboss_installed is defined
+
+
+# below code is for module failed, incorrect credentials, no winrm port working(5986/5985)
+- name: WinRM Port 5985 Tasks run for failed hosts 
+  block:
+    - name: add hosts with updated variables in inventory that failed ping test(failed on Both Winrm Ports 5986/ 5985) hosts
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          failed_reason: 'Unreachable on Both Winrm Ports'
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - alt_unreachable is defined and 'port=5985' in alt_unreachable
+        # - winrm_port_fails is defined
+
+
+    - name: add hosts with updated variables in inventory that failed ping test(module error)(port 5985) hosts
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          ping_module_error: "{{ hostvars[inventory_hostname].alt_module_error | regex_search('(MODULE FAILURE|winrm send_input failed|Unexpected failure during module execution|Connection aborted|failed to execute in the expected time frame|There is not enough space on the disk|ntlm)', ignorecase=True)}}"
+          failed_reason: 'Winrm Module Error'
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - alt_module_error is defined and (alt_module_error in ['winrm send_input failed', 'MODULE FAILURE', 'Unexpected failure during module execution', 'failed to execute in the expected time frame', 'There is not enough space on the disk', 'Connection aborted', 'ntlm'])
+
+
+    - name: add hosts with updated variables in inventory that failed ping test(credentials_rejected)(port 5985) hosts
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          invalid_credentials: "{{ hostvars[inventory_hostname].alt_unreachable | regex_search('the specified credentials were rejected by the server')}}"
+          ansible_connection: winrm
+          ansible_port: 5985
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_python_interpreter: "/usr/libexec/platform-python"
+          failed_reason: "Credentials Rejected with {{service_account}} service account"
+          sdlc: "{{service_account}}"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - alt_unreachable is defined and 'the specified credentials were rejected by the server' in alt_unreachable
+
+
+    - name: add hosts with updated variables in inventory that failed ping test(Jboss powershell error)(port 5986) hosts
+      awx.awx.host:
+        controller_host: "{{ api_awx_url }}"
+        name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+        inventory: vmware_audit_failed_hosts
+        variables: 
+          server_name: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+          java_powershell_error: "{{ hostvars[inventory_hostname].java_process_module_error | regex_search('(The ansible.windows.win_shell)', ignorecase=True)}}"
+          failed_reason: 'java_process_module_error'
+          sdlc: "{{service_account}}"         
+          ansible_connection: winrm
+          ansible_port: 5985
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_python_interpreter: "/usr/libexec/platform-python"
+        state: present
+        enabled: true
+      delegate_to: localhost
+      when:
+        - java_process_module_error is defined and ('The ansible.windows.win_shell' in java_process_module_error )
+        - alt_pong is defined
+        - winrm_port_fails is defined
+
+  when: alt_module_error is defined or alt_unreachable is defined or winrm_port_fails is defined or java_process_module_error is defined

@@ -1,0 +1,15 @@
+---
+# vars file for jboss_fuse-role
+server_name: "{{ vmip.split('.')[0] }}"
+jboss_info: "{{ lookup('template', 'jboss_version_set.j2') }}"
+fuse_state_info: "{{ lookup('template', 'fuse_check.j2') }}"
+
+#variables for adding list of hosts to inventory for ssm install
+network:
+  username: '{{ lookup("env", "ANSIBLE_NET_USERNAME") }}'
+  password: '{{ lookup("env", "ANSIBLE_NET_PASSWORD") }}'
+api_awx_username: "{{ network.username }}"
+api_awx_password: "{{ network.password }}"
+api_awx_inventory: "{{ inventory_name | default('devops_windows_staging_inventory') }}"
+
+api_awx_url: "link_to_ansible"

@@ -1,0 +1,18 @@
+---
+# tasks file for jboss_fuse-role
+- name: server audit Checks for Windows
+  ansible.builtin.include_tasks:
+    file: win_checks.yml
+    apply:
+      tags: always
+  tags:
+    - "windows"
+
+
+- name: server audit Checks for Linux
+  ansible.builtin.include_tasks:
+    file: rhel_checks.yml
+    apply:
+      tags: always
+  tags:
+    - "rhel"

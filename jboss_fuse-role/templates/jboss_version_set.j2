@@ -1,0 +1,18 @@
+{%- set wildfly_info = jboss_home_dir.stdout -%}
+
+{%- set jboss_version_info = file_info   -%}
+
+{%- if wildfly_info is defined or jboss_version_info is defined -%}
+    {%- if 'jboss' in wildfly_info -%}
+        {%- set jboss_version = jboss_version_info -%}
+    {%- elif wildfly_info | regex_search('wildfly-(\\d+\\.\\d+\\.\\d+\\.\\w+)') -%}
+        {%- set jboss_version = wildfly_info | regex_search('wildfly-(\\d+\\.\\d+\\.\\d+\\.\\w+)') -%}
+    {%- else -%}
+        {%- set jboss_version = "Jboss Not Installed" -%}
+    {%- endif -%}
+
+    {{ jboss_version }}
+{%- else -%}
+    {%- set jboss_version = "Jboss Not Installed" -%}
+    {{ jboss_version }}
+{%- endif -%}

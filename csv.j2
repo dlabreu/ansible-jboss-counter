@@ -1,4 +1,0 @@
-Hostname,Jboss Installed,Jboss Version
-{% for host in groups['eap'] %}
-{{ hostvars[host]['ansible_hostname'] }},{{ hostvars[host]['jboss_installed'] }}, {{ hostvars[host]['jboss_version'] }} 
-{% endfor %}
