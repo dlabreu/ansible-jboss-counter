@@ -1,10 +1,8 @@
-{%- set fuse_info = fuse_running.stdout -%}
+{%- set fuse_info = fuse_running.stdout | default('', true) -%}
 
-{%- if fuse_info is defined -%}
-    {%- if 'fuse' in fuse_info  -%}
-        {%- set fuse_state = "Fuse Installed" -%}
-    {%- else -%}
-        {%- set fuse_state = "Fuse Not Installed" -%}
-    {%- endif -%}
-    {{ fuse_state }}
-{%- endif %}
+{%- if fuse_info | regex_search('(?i)\\b(fuse|camel|karaf)\\b') -%}
+    {%- set fuse_state = "Fuse Installed" -%}
+{%- else -%}
+    {%- set fuse_state = "Fuse Not Installed" -%}
+{%- endif -%}
+{{ fuse_state }}

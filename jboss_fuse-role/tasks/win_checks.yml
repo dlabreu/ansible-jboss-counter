@@ -84,7 +84,7 @@
     - name: Check for fuse (5986)
       ansible.builtin.set_fact:
           fuse_installed: "Fuse Installed"
-      when: java_process.stdout is defined and ('fuse' in java_process.stdout ) and java_process.msg is not defined
+      when: java_process.stdout is defined and (java_process.stdout | regex_search('(?i)\\b(fuse|camel|karaf)\\b')) and java_process.msg is not defined
 
 
 
@@ -319,7 +319,7 @@
     - name: Check for fuse (5985)
       ansible.builtin.set_fact:
           fuse_installed: "Fuse Installed"
-      when: java_process.stdout is defined and ('fuse' in java_process.stdout ) and java_process.msg is not defined and alt_pong is defined
+      when: java_process.stdout is defined and (java_process.stdout | regex_search('(?i)\\b(fuse|camel|karaf)\\b')) and java_process.msg is not defined and alt_pong is defined
 
 
     - name: Check for Fuse and jboss and jboss version (5985)
